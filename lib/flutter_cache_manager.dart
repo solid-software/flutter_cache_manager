@@ -316,7 +316,7 @@ class CacheManager {
     } catch (e) {}
     if (response != null) {
       if (response.statusCode == 200) {
-        _saveToCacheObject(newCache, response.bodyBytes, response.headers);
+        await _saveToCacheObject(newCache, response.bodyBytes, response.headers);
       } else if (response.statusCode == 304) {
         await newCache.setDataFromHeaders(response.headers);
       }
