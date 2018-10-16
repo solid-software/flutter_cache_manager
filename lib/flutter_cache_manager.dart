@@ -263,6 +263,42 @@ class CacheManager {
     return new File(path);
   }
 
+  ///Injects file in filePath into the cache at position key = url
+  Future<File> injectFile(String filePath, String url) async {
+    String log = "[Flutter Cache Manager] Injecting as $url";
+
+    if (!_cacheData.containsKey(url)) {
+      await synchronized(_lock, () {
+        if (!_cacheData.containsKey(url)) {
+          _cacheData[url] = new CacheObject(url);
+        }
+      });
+    }
+
+    var cacheObject = _cacheData[url];
+    await synchronized(cacheObject.lock, () async {
+
+      var newCacheData = await _mockedCacheData(filePath, url, cacheObject.lock);
+
+      if (newCacheData != null) {
+        _cacheData[url] = newCacheData;
+        log = "$log\nInjecting file from $filePath.";
+      }
+
+    });
+
+    //If non of the above is true, than we don't have to download anything.
+    _save();
+    if (showDebugLogs) print(log);
+
+    var path = await _cacheData[url].getFilePath();
+    if (path == null) {
+      return null;
+    }
+    return new File(path);
+  }
+
+
   ///Download the file from the url
   Future<CacheObject> _downloadFile(
       String url, Map<String, String> headers, Object lock,
@@ -280,23 +316,48 @@ class CacheManager {
     } catch (e) {}
     if (response != null) {
       if (response.statusCode == 200) {
+        _saveToCacheObject(newCache, response.bodyBytes, response.headers);
+      } else if (response.statusCode == 304) {
         await newCache.setDataFromHeaders(response.headers);
-
-        var filePath = await newCache.getFilePath();
-        var folder = new File(filePath).parent;
-        if (!(await folder.exists())) {
-          folder.createSync(recursive: true);
-        }
-        await new File(filePath).writeAsBytes(response.bodyBytes);
-
-        return newCache;
       }
-      if (response.statusCode == 304) {
-        await newCache.setDataFromHeaders(response.headers);
-        return newCache;
-      }
+      return newCache;
     }
 
     return null;
   }
+
+  ///Creates a Cahe entry with a given file path
+  Future<CacheObject> _mockedCacheData(
+      String filePath,
+      String url, Object lock,
+      {String relativePath}) async {
+    var newCache = new CacheObject(url, lock: lock);
+    newCache.setRelativePath(relativePath);
+
+    List<int> bodyBytes;
+    try {
+      bodyBytes = await new File(filePath).readAsBytes();
+    } catch (e) {}
+
+    _saveToCacheObject(newCache, bodyBytes, new Map());
+    return newCache;
+  }
+
+  void _saveToCacheObject(CacheObject newCache, List<int> bodyBytes,
+      Map<String, String>rHeaders) async {
+
+    if (bodyBytes==null)
+      return;
+
+    await newCache.setDataFromHeaders(rHeaders ?? new Map());
+
+    var filePath = await newCache.getFilePath();
+    var folder = new File(filePath).parent;
+    if (!(await folder.exists())) {
+      folder.createSync(recursive: true);
+    }
+
+    await new File(filePath).writeAsBytes(bodyBytes);
+  }
+
 }
